@@ -9,13 +9,13 @@
 <script>
 window.MathJax = { tex: { inlineMath: [['\\(', '\\)']] }, svg: { fontCache: 'global' }, startup: { typeset: false } };
 </script>
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" async></script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" async onerror="window.mathFailed=true;window.onMathFail&&window.onMathFail()"></script>
 <style>
 html{color-scheme:light}
 body{margin:0}
 [hidden]{display:none!important}
 img{max-width:100%}
-/* Layout: drafting sheet — sticky structure drawing on the left, the solution procedure on the right, stepped like a worked example */
+/* Layout: structure drawing on the left (sticky on wide screens), solution steps on the right */
 :root{
   --paper:#f6f7f4; --sheet:#ffffff; --ink:#17201d; --muted:#5b6964; --rule:#d5dcd8; --soft:#eaefec;
   --accent:#0e6672; --accent-ink:#ffffff; --tension:#1f5fa8; --compress:#c03d12; --fixed:#9aa6a1;
@@ -126,10 +126,6 @@ table.mat td.zero{color:var(--muted)}
 details.editor{border:1px solid var(--rule);border-radius:10px;background:var(--sheet);padding:10px 14px;margin:14px 0}
 details.editor summary{cursor:pointer;font-weight:600}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
-.kv div{border:1px solid var(--rule);border-radius:8px;padding:8px 12px;background:var(--sheet)}
-.kv b{display:block;font-family:var(--mono);font-size:1rem;font-weight:500}
-.kv span{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 footer{margin-top:40px;color:var(--muted);font-size:.8rem;border-top:1px solid var(--rule);padding-top:12px}
 @media (prefers-reduced-motion:no-preference){ .content section{animation:fade .25s ease} }
 @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -354,7 +350,7 @@ function draw(){
   const unitDir=(p,v)=>{const a=T(p);const b=T(p.map((x,k)=>x+v[k]*1e-3*((maxX-minX)||1)/s*100));const dx=b[0]-a[0],dy=b[1]-a[1];const L=Math.hypot(dx,dy);return L<1e-6?null:[dx/L,dy/L];};
   let g='';
   // axis triad
-  const tri=[50,H-46]; const axCol=['var(--compress)','var(--tension)','var(--e4)'];
+  const tri=[50,H-46];
   for(let q=0;q<dim;q++){ const v=[0,0,0].slice(0,dim); v[q]=1; const u=unitDir(P[0],v); if(!u)continue;
     g+=arrow(tri[0],tri[1],tri[0]+u[0]*30,tri[1]+u[1]*30,'var(--muted)',1.2,5)+`<text x="${tri[0]+u[0]*40}" y="${tri[1]+u[1]*40+4}" font-size="12" text-anchor="middle" fill="var(--muted)" font-family="var(--mono)">${AX[q]}</text>`; }
   // elements
@@ -530,7 +526,7 @@ function vBC(){
 }
 
 function vSolve(){
-  const r=S.res, nf=r.free.length, fl=r.free.map(dofName), ft=r.free.map(dofTex);
+  const r=S.res, fl=r.free.map(dofName), ft=r.free.map(dofTex);
   let h=`<section><div class="eyebrow">Step 5 of 6</div><h2>Nodal displacements</h2><p>Solve the equilibrium equation for the free DOFs:</p>`;
   h+=eq(String.raw`[K]\{d\}=\{F\}\;\;\Rightarrow\;\;${texMat(r.Kr)}\begin{Bmatrix}${ft.join(String.raw`\\`)}\end{Bmatrix}=\begin{Bmatrix}${r.Fr.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}`);
   h+=`<h3>Gaussian elimination</h3><p>Forward elimination reduces the augmented matrix [K | F] to upper-triangular form, removing one unknown column at a time with row operations R<sub>i</sub> ← R<sub>i</sub> − m·R<sub>k</sub>, where m = a<sub>ik</sub>/a<sub>kk</sub>.</p>`;
@@ -555,7 +551,11 @@ function vResults(){
   let h=`<section><div class="eyebrow">Step 6 of 6</div><h2>Reaction forces and element stresses</h2>
   <h3>Reactions</h3><p>With all displacements known, the rows of the supported DOFs give the reactions: <b>{R} = [K<sub>sf</sub>]{d<sub>f</sub>} − {F<sub>s</sub>}</b>. Only the free DOFs contribute, because supported displacements are zero.</p>`;
   r.reactions.forEach(x=>{ const terms=r.free.filter(g=>Math.abs(r.K[x.g][g])>1e-9).map(g=>String.raw`(${tf(r.K[x.g][g])})(${tf(r.d[g])})`);
-    h+=eq(String.raw`R_{${Math.floor(x.g/dim)+1}${AX[x.g%dim]}}=${terms.length?terms.join('+'):'0'}${Math.abs(x.F)>0?`-(${tf(x.F)})`:''}=${tf(x.R)}\ \text{N}`); });
+    if(Math.abs(x.F)>0) terms.push(String.raw`-(${tf(x.F)})`);
+    const lab=String.raw`R_{${Math.floor(x.g/dim)+1}${AX[x.g%dim]}}`, res=String.raw`${tf(x.R)}\ \text{N}`;
+    if(terms.length<=2){ h+=eq(`${lab}=${terms.length?terms.join('+').replace(/\+-/g,'-'):'0'}=${res}`); }
+    else { const lines=[]; for(let i=0;i<terms.length;i+=2) lines.push(terms.slice(i,i+2).join('+').replace(/\+-/g,'-'));
+      h+=eq(String.raw`\begin{aligned}${lab}&=${lines.map((l,i)=>(i?'&\\quad +':'')+l).join(String.raw`\\`).replace(/\+-/g,'-')}\\&=${res}\end{aligned}`); } });
   h+=`<div class="scroll"><table class="data"><tr><th>Reaction</th><th>N</th><th>kN</th></tr>${r.reactions.map(x=>`<tr><td>R at ${dofName(x.g)}</td><td>${fmt(x.R,5)}</td><td>${fmt(x.R/1e3,5)}</td></tr>`).join('')}</table></div>`;
   const sums=range(dim).map(q=>{ let s=0; range(r.ndof).filter(g=>g%dim===q).forEach(g=>{ s+=r.F[g]; const rr=r.reactions.find(x=>x.g===g); if(rr)s+=rr.R; }); return s; });
   h+=`<p class="note">Equilibrium check, applied loads plus reactions: ${sums.map((s,q)=>`ΣF<sub>${AX[q]}</sub> = ${fmt(Math.abs(s)<1e-6?0:s,3)} N`).join(', ')}.</p>`;
@@ -577,6 +577,7 @@ function render(){
   nav.innerHTML=STEPS.map((s,i)=>`<li><button data-step="${i}" ${i===S.step?'aria-current="step"':''} class="${i<S.step?'done':''}" ${!S.res&&i>0?'disabled':''}><span class="n">${i+1}</span>${s[1]}</button></li>`).join('');
   const c=document.getElementById('content');
   let h='';
+  if(window.mathFailed) h+=`<div class="note" style="margin-bottom:12px">The equation renderer could not load (it needs an internet connection), so equations below appear as LaTeX source. All numbers, matrices and tables are computed and shown normally.</div>`;
   if(S.err) h+=`<div class="err"><b>The model cannot be solved yet.</b> ${S.err}</div>`;
   if(!S.res&&S.step>0) S.step=0;
   if(S.res||S.step===0) h+=S.res?VIEWS[S.step]():`<section><h2>Problem definition</h2>${editor()}</section>`;
@@ -586,7 +587,7 @@ function render(){
   if(window.MathJax&&MathJax.typesetPromise){ MathJax.typesetClear&&MathJax.typesetClear([c]); MathJax.typesetPromise([c]).catch(()=>{}); }
   try{ history.replaceState(null,'','#'+STEPS[S.step][0]); }catch(e){}
 }
-function go(i){ S.step=Math.max(0,Math.min(5,i)); if(S.step===5&&!S.showDef){S.showDef=true;syncToggles();} if(S.step<5&&S.autoDef){} render(); window.scrollTo({top:0,behavior:'auto'}); }
+function go(i){ S.step=Math.max(0,Math.min(5,i)); if(S.step===5&&!S.showDef){S.showDef=true;syncToggles();} render(); window.scrollTo({top:0,behavior:'auto'}); }
 function syncToggles(){ document.getElementById('tglDof').setAttribute('aria-pressed',S.showDof); document.getElementById('tglDef').setAttribute('aria-pressed',S.showDef); }
 
 document.addEventListener('click',e=>{
@@ -620,11 +621,12 @@ document.addEventListener('change',e=>{
   else if(t.dataset.e!==undefined){ S.input.elems[+t.dataset.e][t.dataset.k]=t.value.trim(); delete S.input.note; changed(); }
 });
 document.getElementById('mag').addEventListener('input',e=>{ S.mag=+e.target.value; draw(); });
-document.getElementById('svg').addEventListener('pointerover',e=>{});
 document.addEventListener('keydown',e=>{ if(e.target.matches('input,select,textarea'))return; if(e.key==='ArrowRight')go(S.step+1); if(e.key==='ArrowLeft')go(S.step-1); });
 function changed(){ S.cell=null; solve(); if(S.res&&S.upTo>S.res.els.length)S.upTo=S.res.els.length; render(); }
 
 document.getElementById('preset').innerHTML=PRESETS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');
+window.onMathFail=()=>render();
+window.addEventListener('hashchange',()=>{ const i=STEPS.findIndex(s=>s[0]===location.hash.slice(1)); if(i>=0&&i!==S.step&&S.res) go(i); });
 const h0=(location.hash||'').slice(1); const si=STEPS.findIndex(s=>s[0]===h0);
 solve(); if(si>0&&S.res)S.step=si; if(S.step===5)S.showDef=true; syncToggles(); render();
 (function waitMJ(){ if(window.MathJax&&MathJax.typesetPromise){ MathJax.typesetPromise([document.getElementById('content')]).catch(()=>{}); } else setTimeout(waitMJ,150); })();
