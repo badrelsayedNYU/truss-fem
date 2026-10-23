@@ -562,7 +562,7 @@ function vResults(){
   h+=`<h3>Element strain and stress</h3><p>Only the displacement component along the bar stretches it. The axial stress is</p>`;
   h+=eq(String.raw`\sigma=\frac{E}{L}\begin{bmatrix}-C_x&-C_y${dim===3?'&-C_z':''}&C_x&C_y${dim===3?'&C_z':''}\end{bmatrix}\{d\},\qquad \varepsilon=\frac{\sigma}{E}`);
   r.els.forEach((el,ei)=>{ const dv=el.dofs.map(g=>r.d[g]); const Cr=[...el.C.map(c=>-c),...el.C];
-    h+=eq(String.raw`\sigma^{(${ei+1})}=\frac{${tf(el.E)}}{${tf(el.L)}}\begin{bmatrix}${Cr.map(c=>tf(c)).join('&')}\end{bmatrix}\begin{Bmatrix}${dv.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}=${tf(r.elRes[ei].stress/1e6,4)}\ \text{MPa}`); });
+    h+=eq(String.raw`\begin{aligned}\sigma^{(${ei+1})}&=\frac{${tf(el.E)}}{${tf(el.L)}}\begin{bmatrix}${Cr.map(c=>tf(c)).join('&')}\end{bmatrix}\begin{Bmatrix}${dv.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}\\&=${tf(r.elRes[ei].stress/1e6,4)}\ \text{MPa}\end{aligned}`); });
   h+=`<div class="scroll"><table class="data"><tr><th>Element</th><th>Elongation (mm)</th><th>Strain</th><th>Stress (MPa)</th><th>Axial force (kN)</th><th>State</th></tr>`;
   r.elRes.forEach((x,ei)=>{ const st=Math.abs(x.stress)<1e-3?'z':(x.stress>0?'t':'c');
     h+=`<tr><td><span class="chip el" style="border-color:${elColor(ei)}">${ei+1}</span></td><td>${fmt(x.delta*1e3,5)}</td><td>${fmt(x.strain,4)}</td><td>${fmt(x.stress/1e6,5)}</td><td>${fmt(x.force/1e3,5)}</td><td><span class="badge ${st}">${st==='t'?'Tension':st==='c'?'Compression':'Zero force'}</span></td></tr>`; });
