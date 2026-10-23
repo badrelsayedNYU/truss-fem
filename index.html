@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Truss FEM Stepper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+window.MathJax = { tex: { inlineMath: [['\\(', '\\)']] }, svg: { fontCache: 'global' }, startup: { typeset: false } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" async></script>
+<style>
+html{color-scheme:light}
+body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+/* Layout: drafting sheet — sticky structure drawing on the left, the solution procedure on the right, stepped like a worked example */
+:root{
+  --paper:#f6f7f4; --sheet:#ffffff; --ink:#17201d; --muted:#5b6964; --rule:#d5dcd8; --soft:#eaefec;
+  --accent:#0e6672; --accent-ink:#ffffff; --tension:#1f5fa8; --compress:#c03d12; --fixed:#9aa6a1;
+  --e1:#0e6672; --e2:#b5651d; --e3:#6a4fb3; --e4:#2f8a3e; --e5:#b03a6b; --e6:#3b6fb8; --e7:#8a7a12; --e8:#5c5c5c;
+  --display:"Newsreader", Georgia, "Times New Roman", serif;
+  --body:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#0f1614; --sheet:#151e1b; --ink:#e3ebe7; --muted:#97a6a0; --rule:#2b3834; --soft:#1c2724;
+  --accent:#4cb3be; --accent-ink:#06201f; --tension:#6aa6ec; --compress:#f07a50; --fixed:#5d6b66;
+  --e1:#4cb3be; --e2:#e0954f; --e3:#a58ef0; --e4:#6cc47a; --e5:#e87aa7; --e6:#7ea6ec; --e7:#d6c454; --e8:#a8a8a8; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --paper:#0f1614; --sheet:#151e1b; --ink:#e3ebe7; --muted:#97a6a0; --rule:#2b3834; --soft:#1c2724;
+  --accent:#4cb3be; --accent-ink:#06201f; --tension:#6aa6ec; --compress:#f07a50; --fixed:#5d6b66;
+  --e1:#4cb3be; --e2:#e0954f; --e3:#a58ef0; --e4:#6cc47a; --e5:#e87aa7; --e6:#7ea6ec; --e7:#d6c454; --e8:#a8a8a8; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:0 48px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--paper)}
+.wrap{max-width:1400px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;justify-content:space-between;padding-block:26px 16px;border-bottom:1px solid var(--rule)}
+h1{font-family:var(--display);font-weight:600;font-size:2rem;line-height:1.1;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.problem-pick{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+label.lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+select,input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var(--sheet);border:1px solid var(--rule);border-radius:6px;padding:6px 8px}
+input[type=text]{font-family:var(--mono);font-size:.85rem;width:100%;min-width:0}
+select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;cursor:pointer;border-radius:6px}
+.btn{background:var(--sheet);color:var(--ink);border:1px solid var(--rule);padding:6px 12px;font-size:.88rem}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn[aria-pressed="true"]{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+nav.steps{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);border-bottom:1px solid var(--rule);padding-block:10px;overflow-x:auto}
+nav.steps ol{list-style:none;margin:0;padding:0;display:flex;gap:6px;min-width:max-content}
+nav.steps button{display:flex;align-items:center;gap:8px;background:none;border:1px solid transparent;padding:6px 10px;color:var(--muted);font-size:.88rem}
+nav.steps button .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--rule);font-family:var(--mono);font-size:.75rem}
+nav.steps button.done .n{background:var(--soft)}
+nav.steps button[aria-current="step"]{color:var(--ink);border-color:var(--rule);background:var(--sheet);font-weight:600}
+nav.steps button[aria-current="step"] .n{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+main{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:28px;padding-top:22px;align-items:start}
+@media (max-width:980px){main{grid-template-columns:minmax(0,1fr)}}
+.viz{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);background:var(--sheet);border:1px solid var(--rule);border-radius:10px;padding:12px;min-width:0}
+@media (max-width:980px){.viz{position:static}}
+.viz svg{width:100%;height:auto;display:block;touch-action:none;user-select:none}
+.viz .bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between}
+.viz .hint{font-size:.78rem;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.78rem;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+.range{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--muted)}
+
+.content{min-width:0}
+.content h2{font-family:var(--display);font-weight:600;font-size:1.6rem;margin:0 0 4px;line-height:1.15;text-wrap:balance}
+.content h3{font-family:var(--display);font-weight:600;font-size:1.2rem;margin:26px 0 8px}
+.content p{max-width:68ch;margin:8px 0}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);font-weight:600}
+.note{border-left:3px solid var(--accent);background:var(--soft);padding:10px 14px;border-radius:0 8px 8px 0;max-width:72ch;font-size:.92rem}
+.eq{overflow-x:auto;padding:4px 0;margin:6px 0}
+.eq mjx-container{margin:4px 0 !important}
+.scroll{overflow-x:auto;max-width:100%}
+
+table.data{border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums;margin:6px 0}
+table.data th,table.data td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right;white-space:nowrap}
+table.data th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;text-align:right}
+table.data td:first-child,table.data th:first-child{text-align:left}
+table.edit td{padding:4px 6px}
+table.edit input[type=text]{width:84px}
+table.edit td.fx{text-align:center}
+
+.mwrap{display:flex;align-items:center;gap:8px;margin:8px 0}
+.mfac{font-family:var(--mono);font-size:.85rem;white-space:nowrap}
+table.mat{border-collapse:separate;border-spacing:0;font-family:var(--mono);font-size:.8rem;font-variant-numeric:tabular-nums}
+table.mat td,table.mat th{padding:3px 8px;text-align:right;white-space:nowrap}
+table.mat th{font-family:var(--body);font-weight:500;color:var(--muted);font-size:.72rem}
+table.mat th.rl{text-align:right;padding-right:10px}
+table.mat td.bl{border-left:1.5px solid var(--ink)}
+table.mat td.br{border-right:1.5px solid var(--ink)}
+table.mat tr.t td.bl{background:linear-gradient(var(--ink),var(--ink)) left top/7px 1.5px no-repeat}
+table.mat tr.b td.bl{background:linear-gradient(var(--ink),var(--ink)) left bottom/7px 1.5px no-repeat}
+table.mat tr.t td.br{background:linear-gradient(var(--ink),var(--ink)) right top/7px 1.5px no-repeat}
+table.mat tr.b td.br{background:linear-gradient(var(--ink),var(--ink)) right bottom/7px 1.5px no-repeat}
+table.mat tr.t.b td.bl{background:linear-gradient(var(--ink),var(--ink)) left top/7px 1.5px no-repeat,linear-gradient(var(--ink),var(--ink)) left bottom/7px 1.5px no-repeat}
+table.mat tr.t.b td.br{background:linear-gradient(var(--ink),var(--ink)) right top/7px 1.5px no-repeat,linear-gradient(var(--ink),var(--ink)) right bottom/7px 1.5px no-repeat}
+table.mat td.v span.c{display:inline-block;padding:1px 4px;border-radius:4px}
+table.mat td.dim{color:var(--fixed)}
+table.mat td.dim span.c{text-decoration:line-through;text-decoration-color:var(--fixed)}
+table.mat td.click{cursor:pointer}
+table.mat td.click:hover span.c{outline:1px solid var(--accent)}
+table.mat td.sel span.c{outline:2px solid var(--accent)}
+table.mat td.zero{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.chip{font-family:var(--mono);font-size:.78rem;padding:3px 8px;border-radius:999px;border:1px solid var(--rule);background:var(--sheet)}
+.chip.fixed{color:var(--muted);background:var(--soft)}
+.chip.free{border-color:var(--accent);color:var(--accent);font-weight:500}
+.chip.el{border-width:2px}
+.badge{display:inline-block;font-size:.72rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px;color:var(--sheet)}
+.badge.t{background:var(--tension)} .badge.c{background:var(--compress)} .badge.z{background:var(--muted)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.inspector{border:1px solid var(--rule);border-radius:8px;padding:10px 14px;background:var(--sheet);margin-top:10px}
+.ops{font-family:var(--mono);font-size:.82rem;color:var(--muted);margin:4px 0}
+.stage{border-top:1px dashed var(--rule);padding-top:8px;margin-top:10px}
+.pager{display:flex;justify-content:space-between;gap:10px;margin-top:30px;padding-top:16px;border-top:1px solid var(--rule)}
+.err{border:1px solid var(--compress);color:var(--compress);border-radius:8px;padding:10px 14px;margin:10px 0}
+details.editor{border:1px solid var(--rule);border-radius:10px;background:var(--sheet);padding:10px 14px;margin:14px 0}
+details.editor summary{cursor:pointer;font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+.kv div{border:1px solid var(--rule);border-radius:8px;padding:8px 12px;background:var(--sheet)}
+.kv b{display:block;font-family:var(--mono);font-size:1rem;font-weight:500}
+.kv span{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+footer{margin-top:40px;color:var(--muted);font-size:.8rem;border-top:1px solid var(--rule);padding-top:12px}
+@media (prefers-reduced-motion:no-preference){ .content section{animation:fade .25s ease} }
+@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="top">
+  <div>
+    <div class="eyebrow">ME-UY 4214 · Bar &amp; truss elements</div>
+    <h1>Truss FEM Stepper</h1>
+    <p class="sub">Follow the direct stiffness method one stage at a time: element stiffness, assembly, boundary conditions, solution, reactions and stresses. Every number on this page is computed in your browser by the algorithms written below it.</p>
+  </div>
+  <div class="problem-pick">
+    <label class="lbl" for="preset">Problem</label>
+    <select id="preset"></select>
+  </div>
+</header>
+
+<nav class="steps" aria-label="Solution stages"><ol id="stepnav"></ol></nav>
+
+<main>
+  <aside class="viz" aria-label="Structure drawing">
+    <div class="bar">
+      <div class="row">
+        <button class="btn" id="tglDof" aria-pressed="true">DOF arrows</button>
+        <button class="btn" id="tglDef" aria-pressed="false">Deformed shape</button>
+        <button class="btn" id="resetView" hidden>Reset view</button>
+      </div>
+      <span class="hint" id="vizHint"></span>
+    </div>
+    <svg id="svg" viewBox="0 0 640 460" role="img" aria-label="Truss drawing"></svg>
+    <div class="range" id="magRow" hidden><label for="mag">Displacement magnification</label><input type="range" id="mag" min="0" max="1" step="0.01" value="0.6"><span id="magTxt"></span></div>
+    <div class="legend" id="legend"></div>
+  </aside>
+  <div class="content" id="content" aria-live="polite"></div>
+</main>
+<footer>Computation: closed-form element stiffness, direct assembly, partitioning of constrained DOFs, Gaussian elimination with back substitution. No external services are called. Units: SI (m, N, Pa); inputs are entered in m, GPa, m² and kN.</footer>
+</div>
+
+<script>
+/*CORE-START*/
+const zeros=(r,c)=>Array.from({length:r},()=>Array(c).fill(0));
+const range=n=>Array.from({length:n},(_,i)=>i);
+
+function gaussSolve(A,b){
+  const n=A.length; const M=A.map((r,i)=>[...r,b[i]]);
+  const scale=Math.max(...A.map((r,i)=>Math.abs(r[i])),1e-300);
+  const steps=[];
+  for(let k=0;k<n;k++){
+    let swap=null;
+    if(Math.abs(M[k][k])<1e-9*scale){
+      let p=-1,best=0;
+      for(let i=k+1;i<n;i++) if(Math.abs(M[i][k])>best){best=Math.abs(M[i][k]);p=i;}
+      if(p<0||best<1e-9*scale) throw new Error('The reduced stiffness matrix is singular, so the structure is a mechanism (it can move without straining any bar). Add supports or bars.');
+      [M[k],M[p]]=[M[p],M[k]]; swap=[k,p];
+    }
+    const ops=[];
+    for(let i=k+1;i<n;i++){
+      const m=M[i][k]/M[k][k]; if(m===0) continue;
+      for(let j=k;j<=n;j++) M[i][j]-=m*M[k][j];
+      M[i][k]=0; ops.push({i,k,m});
+    }
+    if(ops.length||swap) steps.push({k,swap,ops,M:M.map(r=>[...r])});
+  }
+  const x=Array(n).fill(0), back=[];
+  for(let i=n-1;i>=0;i--){
+    let s=M[i][n]; const terms=[];
+    for(let j=i+1;j<n;j++){ if(M[i][j]!==0) terms.push({j,a:M[i][j],x:x[j]}); s-=M[i][j]*x[j]; }
+    x[i]=s/M[i][i]; back.push({i,rhs:M[i][n],terms,piv:M[i][i],x:x[i]});
+  }
+  return {x,steps,back,U:M};
+}
+
+function analyze(model){
+  const nd=model.dim, nn=model.nodes.length, ndof=nn*nd;
+  if(nn<2||!model.elems.length) throw new Error('Define at least two nodes and one element.');
+  const K=zeros(ndof,ndof);
+  const contrib=Array.from({length:ndof},()=>Array.from({length:ndof},()=>[]));
+  const pos=n=>[n.x,n.y,n.z||0].slice(0,nd);
+  const els=model.elems.map((e,ei)=>{
+    if(e.i===e.j||e.i<0||e.j<0||e.i>=nn||e.j>=nn) throw new Error(`Element ${ei+1} must connect two different existing nodes.`);
+    if(!(e.E>0)||!(e.A>0)) throw new Error(`Element ${ei+1} needs a positive E and A.`);
+    const pa=pos(model.nodes[e.i]), pb=pos(model.nodes[e.j]);
+    const D=pb.map((v,k)=>v-pa[k]); const L=Math.hypot(...D);
+    if(!(L>0)) throw new Error(`Element ${ei+1} has zero length: its two nodes share the same coordinates.`);
+    const C=D.map(v=>v/L), kf=e.A*e.E/L;
+    const lam=C.map(ci=>C.map(cj=>ci*cj));
+    const k=zeros(2*nd,2*nd);
+    for(let r=0;r<2*nd;r++)for(let c=0;c<2*nd;c++){ const s=((r<nd)===(c<nd))?1:-1; k[r][c]=kf*s*lam[r%nd][c%nd]; }
+    const T=[[...C,...Array(nd).fill(0)],[...Array(nd).fill(0),...C]];
+    const dofs=[...range(nd).map(q=>e.i*nd+q),...range(nd).map(q=>e.j*nd+q)];
+    for(let r=0;r<2*nd;r++)for(let c=0;c<2*nd;c++){ K[dofs[r]][dofs[c]]+=k[r][c]; contrib[dofs[r]][dofs[c]].push({e:ei,v:k[r][c],r,c}); }
+    return {i:e.i,j:e.j,E:e.E,A:e.A,pa,pb,D,L,C,kf,lam,k,T,dofs};
+  });
+  const F=Array(ndof).fill(0), fixedMask=Array(ndof).fill(false);
+  model.nodes.forEach((n,ni)=>{ for(let q=0;q<nd;q++){ F[ni*nd+q]=n.F[q]||0; fixedMask[ni*nd+q]=!!n.fix[q]; } });
+  const fixed=range(ndof).filter(g=>fixedMask[g]), free=range(ndof).filter(g=>!fixedMask[g]);
+  if(!free.length) throw new Error('Every DOF is constrained, so there is nothing to solve. Release at least one DOF.');
+  const Kr=free.map(r=>free.map(c=>K[r][c])), Fr=free.map(r=>F[r]);
+  const sol=gaussSolve(Kr,Fr);
+  const d=Array(ndof).fill(0); free.forEach((g,i)=>d[g]=sol.x[i]);
+  const reactions=fixed.map(g=>{ let s=0; for(let j=0;j<ndof;j++) s+=K[g][j]*d[j]; return {g,Kd:s,F:F[g],R:s-F[g]}; });
+  const elRes=els.map(el=>{
+    let delta=0; for(let q=0;q<nd;q++) delta+=el.C[q]*(d[el.j*nd+q]-d[el.i*nd+q]);
+    const strain=delta/el.L, stress=el.E*strain;
+    return {delta,strain,stress,force:stress*el.A};
+  });
+  return {nd,ndof,K,contrib,els,F,fixed,free,Kr,Fr,sol,d,reactions,elRes};
+}
+/*CORE-END*/
+
+/* ---------- presets (inputs: m, GPa, m², kN) ---------- */
+const PRESETS=[
+  {name:'Logan Example 3.9 — 3D space truss',dim:3,
+   note:'Three bars meet at free node 1. Nodes 2–4 are pinned (x, y, z fixed). A 20 kN load acts at node 1 in the global x-direction. E = 210 GPa, A = 10×10⁻⁴ m² for all bars.',
+   nodes:[{x:12,y:-3,z:-4,fix:[0,0,0],F:[20,0,0]},{x:0,y:0,z:0,fix:[1,1,1],F:[0,0,0]},{x:12,y:-3,z:-7,fix:[1,1,1],F:[0,0,0]},{x:14,y:6,z:0,fix:[1,1,1],F:[0,0,0]}],
+   elems:[{i:1,j:2,E:210,A:0.001},{i:1,j:3,E:210,A:0.001},{i:1,j:4,E:210,A:0.001}]},
+  {name:'Plane truss — three-bar triangle (2D)',dim:2,
+   note:'Node 1 is pinned, node 2 is a roller (y fixed). Node 3 carries 10 kN to the right and 20 kN downward. E = 200 GPa, A = 2×10⁻³ m².',
+   nodes:[{x:0,y:0,fix:[1,1],F:[0,0]},{x:4,y:0,fix:[0,1],F:[0,0]},{x:2,y:3,fix:[0,0],F:[10,-20]}],
+   elems:[{i:1,j:2,E:200,A:0.002},{i:2,j:3,E:200,A:0.002},{i:1,j:3,E:200,A:0.002}]},
+  {name:'Plane truss — braced panel, 5 bars (2D)',dim:2,
+   note:'A 4 m × 3 m panel with one diagonal. Node 1 pinned, node 2 on a roller. 15 kN horizontal at node 3, 10 kN downward at node 4. E = 70 GPa (aluminum), A = 1.5×10⁻³ m².',
+   nodes:[{x:0,y:0,fix:[1,1],F:[0,0]},{x:4,y:0,fix:[0,1],F:[0,0]},{x:4,y:3,fix:[0,0],F:[15,0]},{x:0,y:3,fix:[0,0],F:[0,-10]}],
+   elems:[{i:1,j:2,E:70,A:0.0015},{i:2,j:3,E:70,A:0.0015},{i:3,j:4,E:70,A:0.0015},{i:4,j:1,E:70,A:0.0015},{i:1,j:3,E:70,A:0.0015}]},
+];
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- state ---------- */
+const STEPS=[['problem','Problem'],['element','Element stiffness'],['assembly','Global assembly'],['bc','Boundary conditions'],['solve','Displacements'],['results','Reactions & stresses']];
+const S={input:clone(PRESETS[0]),res:null,err:null,step:0,selEl:0,upTo:null,cell:null,az:25*Math.PI/180,el:22*Math.PI/180,showDof:true,showDef:false,mag:0.6};
+let hoverEl=-1;
+
+/* ---------- formatting ---------- */
+const minus=s=>s.replace(/-/g,'−');
+function num(v,sig=4){ if(!isFinite(v))return NaN; return Number(v.toPrecision(sig)); }
+function fmt(v,sig=4){
+  if(!isFinite(v))return '—'; if(Math.abs(v)<1e-13)return '0';
+  const e=Math.floor(Math.log10(Math.abs(v)));
+  if(e>=-3&&e<6) return minus(String(num(v,sig)));
+  const m=num(v/10**e,sig); return minus(String(m))+'×10<sup>'+minus(String(e))+'</sup>';
+}
+function tf(v,sig=4){
+  if(!isFinite(v))return '?'; if(Math.abs(v)<1e-13)return '0';
+  const e=Math.floor(Math.log10(Math.abs(v)));
+  if(e>=-3&&e<6) return String(num(v,sig));
+  return String(num(v/10**e,sig))+String.raw`\times10^{${e}}`;
+}
+const tp=v=>(v<0?'('+tf(v)+')':tf(v));
+const AX=['x','y','z'];
+const nd=()=>S.input.dim;
+const dofName=g=>`d<sub>${Math.floor(g/nd())+1}${AX[g%nd()]}</sub>`;
+const dofTex=g=>`d_{${Math.floor(g/nd())+1}${AX[g%nd()]}}`;
+const elColor=e=>`var(--e${(e%8)+1})`;
+
+function matrix(M,{rows,cols,factor=true,sig=4,cellCls,cellStyle,cellAttr,unit=''}={}){
+  let p=0;
+  if(factor){ const mx=Math.max(...M.flat().map(Math.abs)); if(mx>0){ p=Math.floor(Math.log10(mx)); if(Math.abs(p)<3)p=0; } }
+  const s=10**p, nr=M.length, nc=M[0].length;
+  let h='<table class="mat">';
+  if(cols) h+='<tr>'+(rows?'<th></th>':'')+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  M.forEach((row,r)=>{
+    h+=`<tr class="${r===0?'t':''} ${r===nr-1?'b':''}">`+(rows?`<th class="rl">${rows[r]}</th>`:'');
+    row.forEach((v,c)=>{
+      const cls=['v',c===0?'bl':'',c===nc-1?'br':'',Math.abs(v)<1e-12*Math.max(1,s)?'zero':'',cellCls?cellCls(r,c):''].join(' ');
+      const val=Math.abs(v/s)<1e-10?'0':minus(p?(v/s).toFixed(4):String(num(v,sig)));
+      h+=`<td class="${cls}" ${cellAttr?cellAttr(r,c):''}><span class="c" style="${cellStyle?cellStyle(r,c):''}">${val}</span></td>`;
+    });
+    h+='</tr>';
+  });
+  h+='</table>';
+  const fac=p?`10<sup>${minus(String(p))}</sup> ×`:'';
+  return `<div class="scroll"><div class="mwrap">${fac?`<span class="mfac">${fac}</span>`:''}${h}${unit?`<span class="mfac">${unit}</span>`:''}</div></div>`;
+}
+const texMat=(M,f=tf)=>String.raw`\begin{bmatrix}`+M.map(r=>r.map(f).join('&')).join(String.raw`\\`)+String.raw`\end{bmatrix}`;
+const eq=t=>`<div class="eq">\\[${t}\\]</div>`;
+
+/* ---------- model from input ---------- */
+function buildModel(inp){
+  return {dim:inp.dim,
+    nodes:inp.nodes.map(n=>({x:+n.x,y:+n.y,z:+(n.z||0),fix:n.fix.map(Boolean),F:n.F.map(f=>(+f)*1e3)})),
+    elems:inp.elems.map(e=>({i:(+e.i)-1,j:(+e.j)-1,E:(+e.E)*1e9,A:+e.A}))};
+}
+function solve(){
+  try{ S.model=buildModel(S.input); S.res=analyze(S.model); S.err=null; }
+  catch(e){ S.res=null; S.err=e.message; }
+  if(S.res){ if(S.selEl>=S.res.els.length)S.selEl=0; if(S.upTo===null||S.upTo>S.res.els.length)S.upTo=S.res.els.length; }
+}
+
+/* ---------- drawing ---------- */
+function project(p){
+  if(nd()===2) return [p[0],-p[1]];
+  const [x,y,z]=p, ca=Math.cos(S.az), sa=Math.sin(S.az), ce=Math.cos(S.el), se=Math.sin(S.el);
+  const X=-x*sa+y*ca, depth=x*ca+y*sa;
+  return [X,-(z*ce-depth*se)];
+}
+function arrow(x1,y1,x2,y2,color,w=1.6,head=7){
+  const a=Math.atan2(y2-y1,x2-x1);
+  const hx=x2-head*Math.cos(a-0.4), hy=y2-head*Math.sin(a-0.4), gx=x2-head*Math.cos(a+0.4), gy=y2-head*Math.sin(a+0.4);
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${w}"/><polygon points="${x2},${y2} ${hx},${hy} ${gx},${gy}" fill="${color}"/>`;
+}
+function draw(){
+  const svg=document.getElementById('svg'); const m=S.model; if(!m){svg.innerHTML='';return;}
+  const W=640,H=460,pad=70, dim=nd();
+  const P=m.nodes.map(n=>[n.x,n.y,n.z].slice(0,dim));
+  let Pd=null;
+  const showDef=S.showDef&&S.res;
+  if(showDef){
+    const dmax=Math.max(...S.res.d.map(Math.abs))||1;
+    const size=Math.max(...range(dim).map(q=>Math.max(...P.map(p=>p[q]))-Math.min(...P.map(p=>p[q]))))||1;
+    const sc=(0.02+S.mag*0.18)*size/dmax; S.defScale=sc;
+    Pd=P.map((p,ni)=>p.map((v,q)=>v+sc*S.res.d[ni*dim+q]));
+  }
+  const all=[...P,...(Pd||[])].map(project);
+  const xs=all.map(p=>p[0]), ys=all.map(p=>p[1]);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const s=Math.min((W-2*pad)/((maxX-minX)||1),(H-2*pad)/((maxY-minY)||1));
+  const ox=W/2-s*(minX+maxX)/2, oy=H/2-s*(minY+maxY)/2;
+  const T=p=>{const q=project(p);return [ox+s*q[0],oy+s*q[1]];};
+  const unitDir=(p,v)=>{const a=T(p);const b=T(p.map((x,k)=>x+v[k]*1e-3*((maxX-minX)||1)/s*100));const dx=b[0]-a[0],dy=b[1]-a[1];const L=Math.hypot(dx,dy);return L<1e-6?null:[dx/L,dy/L];};
+  let g='';
+  // axis triad
+  const tri=[50,H-46]; const axCol=['var(--compress)','var(--tension)','var(--e4)'];
+  for(let q=0;q<dim;q++){ const v=[0,0,0].slice(0,dim); v[q]=1; const u=unitDir(P[0],v); if(!u)continue;
+    g+=arrow(tri[0],tri[1],tri[0]+u[0]*30,tri[1]+u[1]*30,'var(--muted)',1.2,5)+`<text x="${tri[0]+u[0]*40}" y="${tri[1]+u[1]*40+4}" font-size="12" text-anchor="middle" fill="var(--muted)" font-family="var(--mono)">${AX[q]}</text>`; }
+  // elements
+  const step=STEPS[S.step][0];
+  m.elems.forEach((e,ei)=>{
+    const a=T(P[e.i]), b=T(P[e.j]);
+    let col='var(--ink)', w=3, op=1;
+    if(step==='element'){ col=ei===S.selEl?elColor(ei):'var(--fixed)'; w=ei===S.selEl?4.5:2.5; }
+    if(step==='assembly'){ col=elColor(ei); if(S.upTo!==null&&ei>=S.upTo){op=.25;} }
+    if(showDef){ col='var(--fixed)'; w=2; }
+    if(hoverEl===ei) w+=2;
+    g+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${op}" ${showDef?'stroke-dasharray="5 5"':''}/>`;
+    const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
+    if(!showDef) g+=`<g opacity="${op}"><rect x="${mx-11}" y="${my-10}" width="22" height="20" rx="4" fill="var(--sheet)" stroke="${col}" stroke-width="1.5"/><text x="${mx}" y="${my+4.5}" font-size="12" text-anchor="middle" fill="var(--ink)" font-family="var(--mono)">${ei+1}</text></g>`;
+  });
+  if(showDef){
+    m.elems.forEach((e,ei)=>{ const a=T(Pd[e.i]),b=T(Pd[e.j]); const st=S.res.elRes[ei].stress;
+      const col=Math.abs(st)<1e-6?'var(--muted)':(st>0?'var(--tension)':'var(--compress)');
+      g+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${col}" stroke-width="4" stroke-linecap="round"/>`;
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;
+      g+=`<text x="${mx+8}" y="${my-8}" font-size="11.5" fill="${col}" font-family="var(--mono)">${(st/1e6).toFixed(2)} MPa</text>`; });
+  }
+  // supports
+  m.nodes.forEach((n,ni)=>{
+    if(!n.fix.some(Boolean))return; const [x,y]=T(P[ni]); const all=n.fix.every(Boolean);
+    let sup=`<polygon points="${x},${y+6} ${x-12},${y+26} ${x+12},${y+26}" fill="var(--soft)" stroke="var(--muted)" stroke-width="1.4"/>`;
+    if(!all) sup+=`<circle cx="${x-6}" cy="${y+31}" r="4" fill="none" stroke="var(--muted)" stroke-width="1.3"/><circle cx="${x+6}" cy="${y+31}" r="4" fill="none" stroke="var(--muted)" stroke-width="1.3"/>`;
+    const gy=all?y+26:y+35;
+    sup+=`<line x1="${x-18}" y1="${gy}" x2="${x+18}" y2="${gy}" stroke="var(--muted)" stroke-width="1.4"/>`;
+    for(let k=-15;k<=12;k+=7) sup+=`<line x1="${x+k}" y1="${gy}" x2="${x+k+6}" y2="${gy+6}" stroke="var(--muted)" stroke-width="1"/>`;
+    g+=sup;
+  });
+  // DOF arrows
+  if(S.showDof&&!showDef){
+    m.nodes.forEach((n,ni)=>{ const [x,y]=T(P[ni]);
+      for(let q=0;q<dim;q++){ const v=[0,0,0].slice(0,dim); v[q]=1; const u=unitDir(P[ni],v); if(!u)continue;
+        const fixed=n.fix[q]; const col=fixed?'var(--fixed)':'var(--accent)';
+        g+=arrow(x+u[0]*8,y+u[1]*8,x+u[0]*30,y+u[1]*30,col,1.3,5);
+        g+=`<text x="${x+u[0]*42}" y="${y+u[1]*42+4}" font-size="10.5" text-anchor="middle" fill="${col}" font-family="var(--mono)">${ni+1}${AX[q]}</text>`; } });
+  }
+  // loads
+  m.nodes.forEach((n,ni)=>{ const Fv=n.F; const mag=Math.hypot(...Fv); if(mag<1e-9)return;
+    const u=unitDir(P[ni],Fv.map(f=>f/mag)); if(!u)return; const [x,y]=T(P[ni]);
+    const sx=x-u[0]*62, sy=y-u[1]*62;
+    g+=arrow(sx,sy,x-u[0]*7,y-u[1]*7,'var(--compress)',2.4,10);
+    g+=`<text x="${sx-u[0]*8}" y="${sy-u[1]*8+4}" font-size="12" text-anchor="middle" fill="var(--compress)" font-family="var(--mono)" font-weight="500">${minus(String(num(mag/1e3,4)))} kN</text>`; });
+  // nodes
+  m.nodes.forEach((n,ni)=>{ const [x,y]=T((Pd||P)[ni]);
+    g+=`<circle cx="${x}" cy="${y}" r="6" fill="var(--sheet)" stroke="var(--ink)" stroke-width="2"/>`;
+    g+=`<text x="${x+10}" y="${y-10}" font-size="13" fill="var(--ink)" font-family="var(--body)" font-weight="600">${ni+1}</text>`; });
+  svg.innerHTML=g;
+  // legend
+  const lg=document.getElementById('legend');
+  lg.innerHTML=showDef?`<span><i style="background:var(--tension)"></i>Tension</span><span><i style="background:var(--compress)"></i>Compression</span><span><i style="background:var(--fixed)"></i>Undeformed</span><span>Scale ×${num(S.defScale,3)}</span>`
+    :`<span><i style="background:var(--accent)"></i>Free DOF</span><span><i style="background:var(--fixed)"></i>Constrained DOF</span><span><i style="background:var(--compress)"></i>Applied load</span>`;
+  document.getElementById('vizHint').textContent=dim===3?'Drag to rotate':'';
+  document.getElementById('resetView').hidden=dim!==3;
+  document.getElementById('magRow').hidden=!showDef;
+}
+(function(){ const svg=document.getElementById('svg'); let drag=null;
+  svg.addEventListener('pointerdown',e=>{ if(nd()!==3)return; drag={x:e.clientX,y:e.clientY,az:S.az,el:S.el}; svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener('pointermove',e=>{ if(!drag)return; S.az=drag.az-(e.clientX-drag.x)*0.01; S.el=Math.max(-1.4,Math.min(1.4,drag.el+(e.clientY-drag.y)*0.01)); draw(); });
+  svg.addEventListener('pointerup',()=>drag=null); svg.addEventListener('pointercancel',()=>drag=null);
+})();
+
+/* ---------- step views ---------- */
+function vProblem(){
+  const m=S.model, r=S.res, dim=nd(), inp=S.input;
+  let h=`<section><div class="eyebrow">Step 1 of 6</div><h2>Problem definition</h2>`;
+  if(inp.note) h+=`<p>${inp.note}</p>`;
+  h+=`<p>This is a <b>${dim}D</b> ${dim===3?'space':'plane'} truss with <b>${m.nodes.length} nodes</b>, <b>${m.elems.length} bar elements</b> and <b>${dim} degrees of freedom per node</b> (${AX.slice(0,dim).map(a=>'d<sub>'+a+'</sub>').join(', ')}), so the global system has ${m.nodes.length} × ${dim} = <b>${m.nodes.length*dim} DOFs</b>. A bar element carries only axial force, so each node has translations and no rotations.</p>`;
+  h+=`<h3>Nodes and degrees of freedom</h3><div class="scroll"><table class="data"><tr><th>Node</th>${AX.slice(0,dim).map(a=>`<th>${a} (m)</th>`).join('')}<th>Global DOFs</th><th>Constraints</th>${AX.slice(0,dim).map(a=>`<th>F<sub>${a}</sub> (kN)</th>`).join('')}</tr>`;
+  m.nodes.forEach((n,ni)=>{
+    const dofs=range(dim).map(q=>`${ni*dim+q+1}&nbsp;(${dofName(ni*dim+q)})`).join(', ');
+    const fx=n.fix.some(Boolean)?AX.filter((_,q)=>n.fix[q]).map(a=>'d<sub>'+a+'</sub>').join(', ')+' = 0':'free';
+    h+=`<tr><td>${ni+1}</td>${[n.x,n.y,n.z].slice(0,dim).map(v=>`<td>${fmt(v)}</td>`).join('')}<td>${dofs}</td><td>${fx}</td>${n.F.map(f=>`<td>${fmt(f/1e3)}</td>`).join('')}</tr>`;
+  });
+  h+=`</table></div>`;
+  h+=`<h3>Element connectivity and geometry</h3><div class="scroll"><table class="data"><tr><th>Element</th><th>Node i → j</th><th>E (GPa)</th><th>A (m²)</th><th>L (m)</th>${AX.slice(0,dim).map(a=>`<th>C<sub>${a}</sub></th>`).join('')}</tr>`;
+  (r?r.els:[]).forEach((el,ei)=>{
+    h+=`<tr data-el="${ei}"><td><span class="chip el" style="border-color:${elColor(ei)}">${ei+1}</span></td><td>${el.i+1} → ${el.j+1}</td><td>${fmt(el.E/1e9)}</td><td>${fmt(el.A)}</td><td>${fmt(el.L)}</td>${el.C.map(c=>`<td>${fmt(c)}</td>`).join('')}</tr>`;
+  });
+  h+=`</table></div><p class="note">The local axis x̂ of each element points from node i to node j. Its direction cosines C<sub>x</sub>, C<sub>y</sub>${dim===3?', C<sub>z</sub>':''} come from the nodal coordinates and set the element's orientation in the global frame.</p>`;
+  h+=editor()+'</section>';
+  return h;
+}
+function editor(){
+  const inp=S.input, dim=inp.dim;
+  let h=`<details class="editor" id="edit" ${S.editOpen?'open':''}><summary>Edit this problem or define your own</summary>
+  <p>Changes recompute every step immediately. Coordinates in m, E in GPa, A in m² (scientific notation such as <code>10e-4</code> is accepted), loads in kN. Tick a box to fix that DOF.</p>
+  <div class="row"><label class="lbl" for="dimSel">Dimension</label><select id="dimSel"><option value="2" ${dim===2?'selected':''}>2D plane truss</option><option value="3" ${dim===3?'selected':''}>3D space truss</option></select></div>
+  <h3>Nodes</h3><div class="scroll"><table class="data edit"><tr><th>#</th>${AX.slice(0,dim).map(a=>`<th>${a}</th>`).join('')}${AX.slice(0,dim).map(a=>`<th>fix ${a}</th>`).join('')}${AX.slice(0,dim).map(a=>`<th>F${a} (kN)</th>`).join('')}<th></th></tr>`;
+  inp.nodes.forEach((n,ni)=>{
+    h+=`<tr><td>${ni+1}</td>`+['x','y','z'].slice(0,dim).map(k=>`<td><input type="text" id="n${ni}${k}" data-n="${ni}" data-k="${k}" value="${n[k]??0}" aria-label="Node ${ni+1} ${k}"></td>`).join('')
+      +range(dim).map(q=>`<td class="fx"><input type="checkbox" id="n${ni}f${q}" data-n="${ni}" data-fix="${q}" ${n.fix[q]?'checked':''} aria-label="Fix node ${ni+1} ${AX[q]}"></td>`).join('')
+      +range(dim).map(q=>`<td><input type="text" id="n${ni}F${q}" data-n="${ni}" data-F="${q}" value="${n.F[q]??0}" aria-label="Node ${ni+1} load ${AX[q]}"></td>`).join('')
+      +`<td><button class="btn" data-delnode="${ni}" aria-label="Remove node ${ni+1}">✕</button></td></tr>`;
+  });
+  h+=`</table></div><button class="btn" id="addNode">Add node</button>
+  <h3>Elements</h3><div class="scroll"><table class="data edit"><tr><th>#</th><th>node i</th><th>node j</th><th>E (GPa)</th><th>A (m²)</th><th></th></tr>`;
+  inp.elems.forEach((e,ei)=>{
+    h+=`<tr><td>${ei+1}</td>`+['i','j','E','A'].map(k=>`<td><input type="text" id="e${ei}${k}" data-e="${ei}" data-k="${k}" value="${e[k]}" aria-label="Element ${ei+1} ${k}"></td>`).join('')+`<td><button class="btn" data-delel="${ei}" aria-label="Remove element ${ei+1}">✕</button></td></tr>`;
+  });
+  h+=`</table></div><button class="btn" id="addEl">Add element</button></details>`;
+  return h;
+}
+
+function vElement(){
+  const r=S.res, dim=nd(), e=S.selEl, el=r.els[e], ai=el.i+1, aj=el.j+1;
+  const names=['x','y','z'].slice(0,dim);
+  let h=`<section><div class="eyebrow">Step 2 of 6</div><h2>Element stiffness matrices</h2>
+  <p>Each bar is first described in its own local coordinate, where it behaves like a one-dimensional spring of stiffness AE/L. The transformation matrix [T] rotates that spring into the global ${dim===3?'x-y-z':'x-y'} frame.</p>
+  <div class="tabs" role="tablist">${r.els.map((_,i)=>`<button class="btn" role="tab" data-sel="${i}" aria-pressed="${i===e}" style="border-color:${elColor(i)}">Element ${i+1}</button>`).join('')}</div>`;
+  h+=`<h3>1 · Length</h3>`;
+  const diffs=names.map((a,q)=>`(${tf(el.pb[q])}-${tp(el.pa[q])})^2`).join('+');
+  h+=eq(String.raw`L^{(${e+1})}=\sqrt{${names.map(a=>`(${a}_${aj}-${a}_${ai})^2`).join('+')}}=\sqrt{${diffs}}=${tf(el.L)}\ \text{m}`);
+  h+=`<h3>2 · Direction cosines</h3>`;
+  h+=eq(names.map((a,q)=>String.raw`C_${a}=\frac{${a}_${aj}-${a}_${ai}}{L}=\frac{${tf(el.D[q])}}{${tf(el.L)}}=${tf(el.C[q])}`).join(String.raw`\qquad `));
+  if(dim===2) h+=`<p>For a plane truss these are often written C = cos θ and S = sin θ, with θ = ${num(Math.atan2(el.C[1],el.C[0])*180/Math.PI,4)}° measured counter-clockwise from the global x-axis.</p>`;
+  h+=`<h3>3 · Local stiffness and transformation</h3>
+  <p>In local coordinates the bar has two DOFs, the axial displacements of its ends. Each global displacement is projected onto the bar axis by [T]:</p>`;
+  h+=eq(String.raw`\hat{\mathbf k}=\frac{AE}{L}\begin{bmatrix}1&-1\\-1&1\end{bmatrix},\qquad \frac{AE}{L}=\frac{(${tf(el.A)})(${tf(el.E)})}{${tf(el.L)}}=${tf(el.kf)}\ \text{N/m}`);
+  h+=eq(String.raw`[T]=${texMat(el.T)}`);
+  h+=eq(String.raw`[k]=[T]^{T}\,\hat{\mathbf k}\,[T]=\frac{AE}{L}\begin{bmatrix}\lambda&-\lambda\\-\lambda&\lambda\end{bmatrix},\qquad \lambda=\begin{bmatrix}${names.map(a=>names.map(b=>a===b?`C_${a}^2`:`C_${a}C_${b}`).join('&')).join(String.raw`\\`)}\end{bmatrix}`);
+  h+=`<h3>4 · Numerical values</h3>`;
+  h+=eq(String.raw`\lambda^{(${e+1})}=${texMat(el.lam,v=>tf(v,4))}`);
+  const labels=el.dofs.map(dofName);
+  h+=`<p>The ${2*dim}×${2*dim} element stiffness matrix in global coordinates (N/m). Rows and columns are labelled with the global DOFs they belong to:</p>`;
+  h+=matrix(el.k,{rows:labels,cols:labels,cellStyle:()=>`background:color-mix(in srgb, ${elColor(e)} 12%, transparent)`});
+  h+=`<p class="note">The matrix is symmetric, and each row sums to zero because moving the whole bar as a rigid body produces no force. The four ${dim}×${dim} blocks are ±λ·AE/L.</p></section>`;
+  return h;
+}
+
+function vAssembly(){
+  const r=S.res, dim=nd(), n=r.ndof, up=S.upTo;
+  const labels=range(n).map(g=>`${g+1}<br>${dofName(g)}`);
+  let h=`<section><div class="eyebrow">Step 3 of 6</div><h2>Global stiffness assembly</h2>
+  <p>Every element matrix entry k<sub>rc</sub> is added into the global matrix at the position given by the global DOF numbers of its row and column. This is the direct stiffness method: <b>[K] = Σ<sub>e</sub> [k<sup>(e)</sup>]</b>, each expanded to the full ${n}×${n} size.</p>
+  <h3>DOF map</h3><div class="scroll"><table class="data"><tr><th>Element</th><th>Nodes</th><th>Local DOF 1…${2*dim}</th><th>→ Global DOF</th></tr>`;
+  r.els.forEach((el,ei)=>{ h+=`<tr><td><span class="chip el" style="border-color:${elColor(ei)}">${ei+1}</span></td><td>${el.i+1}, ${el.j+1}</td><td>${range(2*dim).map(q=>q+1).join(', ')}</td><td>${el.dofs.map(g=>`${g+1} (${dofName(g)})`).join(', ')}</td></tr>`; });
+  h+=`</table></div>`;
+  h+=`<h3>Build it up one element at a time</h3><div class="tabs">`+range(r.els.length+1).map(k=>`<button class="btn" data-up="${k}" aria-pressed="${k===up}">${k===0?'Empty':k===r.els.length&&k>1?'All '+k+' elements':'+ Element '+k}</button>`).join('')+`</div>`;
+  const partial=range(n).map(a=>range(n).map(b=>r.contrib[a][b].filter(c=>c.e<up).reduce((s,c)=>s+c.v,0)));
+  const style=(a,b)=>{ const cs=r.contrib[a][b].filter(c=>c.e<up); if(!cs.length)return ''; const es=[...new Set(cs.map(c=>c.e))];
+    if(es.length===1)return `background:color-mix(in srgb, ${elColor(es[0])} 18%, transparent)`;
+    const stops=es.map((x,i)=>`color-mix(in srgb, ${elColor(x)} 22%, transparent) ${i*100/es.length}% ${(i+1)*100/es.length}%`).join(',');
+    return `background:linear-gradient(90deg,${stops})`; };
+  h+=`<p>Shaded cells show which element contributes to each entry; cells with several colours receive overlapping contributions where elements share a node. <b>Click any entry</b> to see its sum.</p>`;
+  h+=matrix(partial,{rows:labels,cols:labels,cellStyle:style,cellCls:(a,b)=>'click'+(S.cell&&S.cell[0]===a&&S.cell[1]===b?' sel':''),cellAttr:(a,b)=>`data-cell="${a},${b}"`,unit:'N/m'});
+  if(S.cell){ const [a,b]=S.cell; const cs=r.contrib[a][b].filter(c=>c.e<up);
+    h+=`<div class="inspector"><b>K<sub>${a+1},${b+1}</sub></b> (row ${dofName(a)}, column ${dofName(b)})`;
+    h+=cs.length?eq(String.raw`K_{${a+1},${b+1}}=`+cs.map(c=>String.raw`k^{(${c.e+1})}_{${c.r+1}${c.c+1}}`).join('+')+'='+cs.map(c=>tp(c.v)).join('+')+'='+tf(cs.reduce((s,c)=>s+c.v,0))+String.raw`\ \text{N/m}`)
+      :`<p>No element added so far connects these two DOFs, so this entry is zero.</p>`;
+    h+=`</div>`; }
+  if(up===r.els.length) h+=`<p class="note">The complete [K] is symmetric and singular: before supports are applied the truss can translate freely, so it cannot be inverted yet.</p>`;
+  return h+'</section>';
+}
+
+function vBC(){
+  const r=S.res, n=r.ndof; const labels=range(n).map(g=>`${g+1}<br>${dofName(g)}`);
+  const isF=g=>r.fixed.includes(g);
+  let h=`<section><div class="eyebrow">Step 4 of 6</div><h2>Boundary conditions and the reduced system</h2>
+  <p>Supports prescribe zero displacement at some DOFs. Ordering the DOFs into free (f) and supported (s) sets partitions the global equations:</p>`;
+  h+=eq(String.raw`\begin{bmatrix}K_{ff}&K_{fs}\\K_{sf}&K_{ss}\end{bmatrix}\begin{Bmatrix}d_f\\d_s=0\end{Bmatrix}=\begin{Bmatrix}F_f\\F_s+R\end{Bmatrix}\;\;\Rightarrow\;\;[K_{ff}]\{d_f\}=\{F_f\}`);
+  h+=`<h3>Constrained DOFs (${r.fixed.length})</h3><div class="chips">${r.fixed.map(g=>`<span class="chip fixed">${dofName(g)} = 0</span>`).join('')||'<span class="chip">none</span>'}</div>
+  <h3>Free DOFs (${r.free.length})</h3><div class="chips">${r.free.map(g=>`<span class="chip free">${dofName(g)}</span>`).join('')}</div>
+  <p>Because d<sub>s</sub> = 0, the columns of supported DOFs multiply zero and drop out, and their rows contain unknown reactions, so they are set aside until Step 6. The struck-through entries below are removed:</p>`;
+  h+=matrix(r.K,{rows:labels,cols:labels,cellCls:(a,b)=>isF(a)||isF(b)?'dim':'',unit:'N/m'});
+  const fl=r.free.map(dofName);
+  h+=`<h3>Reduced stiffness matrix and force vector</h3><div class="row" style="align-items:center;gap:14px">`+matrix(r.Kr,{rows:fl,cols:fl,unit:'N/m'})+matrix(r.Fr.map(v=>[v]),{rows:fl,factor:false,unit:'N'})+`</div>`;
+  h+=`<p class="note">The reduced matrix is ${r.free.length}×${r.free.length}. If it were singular the supports would be insufficient, and the structure would be a mechanism.</p></section>`;
+  return h;
+}
+
+function vSolve(){
+  const r=S.res, nf=r.free.length, fl=r.free.map(dofName), ft=r.free.map(dofTex);
+  let h=`<section><div class="eyebrow">Step 5 of 6</div><h2>Nodal displacements</h2><p>Solve the equilibrium equation for the free DOFs:</p>`;
+  h+=eq(String.raw`[K]\{d\}=\{F\}\;\;\Rightarrow\;\;${texMat(r.Kr)}\begin{Bmatrix}${ft.join(String.raw`\\`)}\end{Bmatrix}=\begin{Bmatrix}${r.Fr.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}`);
+  h+=`<h3>Gaussian elimination</h3><p>Forward elimination reduces the augmented matrix [K | F] to upper-triangular form, removing one unknown column at a time with row operations R<sub>i</sub> ← R<sub>i</sub> − m·R<sub>k</sub>, where m = a<sub>ik</sub>/a<sub>kk</sub>.</p>`;
+  h+=`<div class="stage"><b>Start</b>`+matrix(r.Kr.map((row,i)=>[...row,r.Fr[i]]),{rows:fl,factor:false,sig:5})+`</div>`;
+  if(!r.sol.steps.length) h+=`<p>The matrix is already upper-triangular, so no elimination is needed.</p>`;
+  r.sol.steps.forEach(st=>{
+    h+=`<div class="stage"><b>Eliminate column ${st.k+1}</b> (pivot ${fl[st.k]})`;
+    if(st.swap) h+=`<div class="ops">swap R${st.swap[0]+1} ↔ R${st.swap[1]+1} (zero pivot)</div>`;
+    h+=st.ops.map(o=>`<div class="ops">R${o.i+1} ← R${o.i+1} − (${fmt(o.m,5)})·R${o.k+1}</div>`).join('');
+    h+=matrix(st.M,{rows:fl,factor:false,sig:5})+`</div>`;
+  });
+  h+=`<h3>Back substitution</h3><p>Starting from the last row, each unknown is found from the ones already solved:</p>`;
+  h+=r.sol.back.map(b=>eq(String.raw`${ft[b.i]}=\frac{${tf(b.rhs,5)}${b.terms.map(t=>String.raw`-(${tf(t.a,5)})(${tf(t.x,5)})`).join('')}}{${tf(b.piv,5)}}=${tf(b.x,5)}\ \text{m}`)).join('');
+  h+=`<h3>Result</h3><div class="scroll"><table class="data"><tr><th>DOF</th><th>Displacement (m)</th><th>(mm)</th></tr>`;
+  range(r.ndof).forEach(g=>{ const f=r.fixed.includes(g); h+=`<tr><td>${dofName(g)}${f?' <span class="chip fixed">support</span>':''}</td><td>${fmt(r.d[g],5)}</td><td>${fmt(r.d[g]*1e3,5)}</td></tr>`; });
+  h+=`</table></div><p class="note">The tool also back-checks the answer: the residual ‖[K<sub>ff</sub>]{d<sub>f</sub>} − {F<sub>f</sub>}‖ = ${fmt(Math.hypot(...r.Kr.map((row,i)=>row.reduce((s,v,j)=>s+v*r.sol.x[j],0)-r.Fr[i])),3)} N.</p></section>`;
+  return h;
+}
+
+function vResults(){
+  const r=S.res, dim=nd();
+  let h=`<section><div class="eyebrow">Step 6 of 6</div><h2>Reaction forces and element stresses</h2>
+  <h3>Reactions</h3><p>With all displacements known, the rows of the supported DOFs give the reactions: <b>{R} = [K<sub>sf</sub>]{d<sub>f</sub>} − {F<sub>s</sub>}</b>. Only the free DOFs contribute, because supported displacements are zero.</p>`;
+  r.reactions.forEach(x=>{ const terms=r.free.filter(g=>Math.abs(r.K[x.g][g])>1e-9).map(g=>String.raw`(${tf(r.K[x.g][g])})(${tf(r.d[g])})`);
+    h+=eq(String.raw`R_{${Math.floor(x.g/dim)+1}${AX[x.g%dim]}}=${terms.length?terms.join('+'):'0'}${Math.abs(x.F)>0?`-(${tf(x.F)})`:''}=${tf(x.R)}\ \text{N}`); });
+  h+=`<div class="scroll"><table class="data"><tr><th>Reaction</th><th>N</th><th>kN</th></tr>${r.reactions.map(x=>`<tr><td>R at ${dofName(x.g)}</td><td>${fmt(x.R,5)}</td><td>${fmt(x.R/1e3,5)}</td></tr>`).join('')}</table></div>`;
+  const sums=range(dim).map(q=>{ let s=0; range(r.ndof).filter(g=>g%dim===q).forEach(g=>{ s+=r.F[g]; const rr=r.reactions.find(x=>x.g===g); if(rr)s+=rr.R; }); return s; });
+  h+=`<p class="note">Equilibrium check, applied loads plus reactions: ${sums.map((s,q)=>`ΣF<sub>${AX[q]}</sub> = ${fmt(Math.abs(s)<1e-6?0:s,3)} N`).join(', ')}.</p>`;
+  h+=`<h3>Element strain and stress</h3><p>Only the displacement component along the bar stretches it. The axial stress is</p>`;
+  h+=eq(String.raw`\sigma=\frac{E}{L}\begin{bmatrix}-C_x&-C_y${dim===3?'&-C_z':''}&C_x&C_y${dim===3?'&C_z':''}\end{bmatrix}\{d\},\qquad \varepsilon=\frac{\sigma}{E}`);
+  r.els.forEach((el,ei)=>{ const dv=el.dofs.map(g=>r.d[g]); const Cr=[...el.C.map(c=>-c),...el.C];
+    h+=eq(String.raw`\sigma^{(${ei+1})}=\frac{${tf(el.E)}}{${tf(el.L)}}\begin{bmatrix}${Cr.map(c=>tf(c)).join('&')}\end{bmatrix}\begin{Bmatrix}${dv.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}=${tf(r.elRes[ei].stress/1e6,4)}\ \text{MPa}`); });
+  h+=`<div class="scroll"><table class="data"><tr><th>Element</th><th>Elongation (mm)</th><th>Strain</th><th>Stress (MPa)</th><th>Axial force (kN)</th><th>State</th></tr>`;
+  r.elRes.forEach((x,ei)=>{ const st=Math.abs(x.stress)<1e-3?'z':(x.stress>0?'t':'c');
+    h+=`<tr><td><span class="chip el" style="border-color:${elColor(ei)}">${ei+1}</span></td><td>${fmt(x.delta*1e3,5)}</td><td>${fmt(x.strain,4)}</td><td>${fmt(x.stress/1e6,5)}</td><td>${fmt(x.force/1e3,5)}</td><td><span class="badge ${st}">${st==='t'?'Tension':st==='c'?'Compression':'Zero force'}</span></td></tr>`; });
+  h+=`</table></div><p>A positive stress means the bar lengthens (tension); a negative stress means it shortens (compression). Turn on <b>Deformed shape</b> beside the drawing to see the magnified displacements coloured by state.</p></section>`;
+  return h;
+}
+
+/* ---------- render ---------- */
+const VIEWS=[vProblem,vElement,vAssembly,vBC,vSolve,vResults];
+function render(){
+  const nav=document.getElementById('stepnav');
+  nav.innerHTML=STEPS.map((s,i)=>`<li><button data-step="${i}" ${i===S.step?'aria-current="step"':''} class="${i<S.step?'done':''}" ${!S.res&&i>0?'disabled':''}><span class="n">${i+1}</span>${s[1]}</button></li>`).join('');
+  const c=document.getElementById('content');
+  let h='';
+  if(S.err) h+=`<div class="err"><b>The model cannot be solved yet.</b> ${S.err}</div>`;
+  if(!S.res&&S.step>0) S.step=0;
+  if(S.res||S.step===0) h+=S.res?VIEWS[S.step]():`<section><h2>Problem definition</h2>${editor()}</section>`;
+  h+=`<div class="pager"><button class="btn" data-go="-1" ${S.step===0?'disabled':''}>← ${S.step>0?STEPS[S.step-1][1]:'Back'}</button>${S.step<5?`<button class="btn primary" data-go="1" ${!S.res?'disabled':''}>Next: ${STEPS[S.step+1][1]} →</button>`:'<button class="btn" data-goto="0">Start over at step 1</button>'}</div>`;
+  c.innerHTML=h;
+  draw();
+  if(window.MathJax&&MathJax.typesetPromise){ MathJax.typesetClear&&MathJax.typesetClear([c]); MathJax.typesetPromise([c]).catch(()=>{}); }
+  try{ history.replaceState(null,'','#'+STEPS[S.step][0]); }catch(e){}
+}
+function go(i){ S.step=Math.max(0,Math.min(5,i)); if(S.step===5&&!S.showDef){S.showDef=true;syncToggles();} if(S.step<5&&S.autoDef){} render(); window.scrollTo({top:0,behavior:'auto'}); }
+function syncToggles(){ document.getElementById('tglDof').setAttribute('aria-pressed',S.showDof); document.getElementById('tglDef').setAttribute('aria-pressed',S.showDef); }
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,[data-cell]'); if(!t)return;
+  if(t.dataset.step) go(+t.dataset.step);
+  else if(t.dataset.go) go(S.step+(+t.dataset.go));
+  else if(t.dataset.goto) go(+t.dataset.goto);
+  else if(t.dataset.sel){ S.selEl=+t.dataset.sel; render(); }
+  else if(t.dataset.up!==undefined){ S.upTo=+t.dataset.up; render(); }
+  else if(t.dataset.cell){ S.cell=t.dataset.cell.split(',').map(Number); render(); }
+  else if(t.dataset.delnode!==undefined){ const k=+t.dataset.delnode; S.input.nodes.splice(k,1);
+    S.input.elems=S.input.elems.filter(x=>+x.i!==k+1&&+x.j!==k+1).map(x=>({...x,i:+x.i>k+1?+x.i-1:+x.i,j:+x.j>k+1?+x.j-1:+x.j})); changed(); }
+  else if(t.dataset.delel!==undefined){ S.input.elems.splice(+t.dataset.delel,1); changed(); }
+  else if(t.id==='addNode'){ const d=S.input.dim; S.input.nodes.push({x:0,y:0,z:0,fix:Array(d).fill(0),F:Array(d).fill(0)}); changed(); }
+  else if(t.id==='addEl'){ const l=S.input.elems[S.input.elems.length-1]||{E:200,A:0.001}; S.input.elems.push({i:1,j:Math.min(2,S.input.nodes.length),E:l.E,A:l.A}); changed(); }
+  else if(t.id==='tglDof'){ S.showDof=!S.showDof; syncToggles(); draw(); }
+  else if(t.id==='tglDef'){ S.showDef=!S.showDef; syncToggles(); draw(); }
+  else if(t.id==='resetView'){ S.az=25*Math.PI/180; S.el=22*Math.PI/180; draw(); }
+});
+document.addEventListener('toggle',e=>{ if(e.target.id==='edit') S.editOpen=e.target.open; },true);
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='preset'){ S.input=clone(PRESETS[+t.value]); S.cell=null; S.upTo=null; S.selEl=0; S.showDef=false; syncToggles(); S.step=0; changed(); return; }
+  if(t.id==='mag'){ return; }
+  if(t.id==='dimSel'){ const d=+t.value; S.input.dim=d; S.input.nodes.forEach(n=>{ n.fix=range(d).map(q=>n.fix[q]||0); n.F=range(d).map(q=>n.F[q]||0); if(d===3&&n.z===undefined)n.z=0; }); delete S.input.note; changed(); return; }
+  if(t.dataset.n!==undefined){ const n=S.input.nodes[+t.dataset.n];
+    if(t.dataset.fix!==undefined) n.fix[+t.dataset.fix]=t.checked?1:0;
+    else if(t.dataset.F!==undefined) n.F[+t.dataset.F]=t.value.trim();
+    else n[t.dataset.k]=t.value.trim();
+    delete S.input.note; changed(); }
+  else if(t.dataset.e!==undefined){ S.input.elems[+t.dataset.e][t.dataset.k]=t.value.trim(); delete S.input.note; changed(); }
+});
+document.getElementById('mag').addEventListener('input',e=>{ S.mag=+e.target.value; draw(); });
+document.getElementById('svg').addEventListener('pointerover',e=>{});
+document.addEventListener('keydown',e=>{ if(e.target.matches('input,select,textarea'))return; if(e.key==='ArrowRight')go(S.step+1); if(e.key==='ArrowLeft')go(S.step-1); });
+function changed(){ S.cell=null; solve(); if(S.res&&S.upTo>S.res.els.length)S.upTo=S.res.els.length; render(); }
+
+document.getElementById('preset').innerHTML=PRESETS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');
+const h0=(location.hash||'').slice(1); const si=STEPS.findIndex(s=>s[0]===h0);
+solve(); if(si>0&&S.res)S.step=si; if(S.step===5)S.showDef=true; syncToggles(); render();
+(function waitMJ(){ if(window.MathJax&&MathJax.typesetPromise){ MathJax.typesetPromise([document.getElementById('content')]).catch(()=>{}); } else setTimeout(waitMJ,150); })();
+</script>
+
+</body>
+</html>
