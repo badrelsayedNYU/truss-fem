@@ -5,7 +5,8 @@ const vm = require('node:vm');
 const {test} = require('node:test');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 // Include the view functions so regression tests exercise the actual teaching pages.
-const source = html.split('/*CORE-START*/')[1].split('const VIEWS=')[0];
+const script = html.split('/*CORE-START*/')[1];
+const source = script.split('/* ---------- drawing')[0] + '\n' + script.split('/* ---------- step views ---------- */')[1].split('const VIEWS=')[0];
 const {analyze, gaussSolve, PRESETS, S, solve, texMat, views} = vm.runInNewContext(source + '\n({analyze,gaussSolve,PRESETS,S,solve,texMat,views:[vProblem,vElement,vAssembly,vBC,vSolve,vResults]});');
 const near = (x,y,tol=1e-10) => assert.ok(Math.abs(x-y)<=tol*Math.max(1,Math.abs(y)),`${x} != ${y}`);
 const si = m => ({dim:m.dim,nodes:m.nodes.map(n=>({...n,F:n.F.map(f=>f*1e3)})),elems:m.elems.map(e=>({...e,i:e.i-1,j:e.j-1,E:e.E*1e9}))});
