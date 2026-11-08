@@ -37,4 +37,8 @@ The small differences come from the textbook rounding direction-cosine products 
 
 Open the live link, or download `index.html` and open it in any browser. Everything runs client-side in plain JavaScript. The only external dependency is MathJax (loaded from a CDN) for typesetting equations; without an internet connection the equations show as LaTeX source and all numbers still work.
 
-The solver is the code between `/*CORE-START*/` and `/*CORE-END*/` in `index.html`: `analyze()` forms element matrices, assembles [K], applies boundary conditions and recovers reactions and stresses; `gaussSolve()` performs Gaussian elimination and records each step for display.
+The solver is the code between `/*CORE-START*/` and `/*CORE-END*/` in `index.html`: `analyze()` forms element matrices, assembles [K], applies boundary conditions and recovers reactions and stresses; `gaussSolve()` uses scaled partial pivoting for Gaussian elimination and records each step for display. Pivot comparisons use each row's own stiffness scale, so a weak member is not mistaken for a mechanism just because another member is much stiffer.
+
+## Automated checks
+
+GitHub Actions runs `node --test tests/fem.test.cjs` on every push and pull request. The tests cover the built-in reference cases, equilibrium, large stiffness contrasts, pivoting, genuine mechanisms, and nonfinite inputs. No test dependencies are required beyond Node.js 22.

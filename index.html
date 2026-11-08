@@ -174,15 +174,25 @@ const range=n=>Array.from({length:n},(_,i)=>i);
 
 function gaussSolve(A,b){
   const n=A.length; const M=A.map((r,i)=>[...r,b[i]]);
-  const scale=Math.max(...A.map((r,i)=>Math.abs(r[i])),1e-300);
+  if(A.some(r=>r.some(v=>!Number.isFinite(v)))||b.some(v=>!Number.isFinite(v)))
+    throw new Error('Stiffness and load entries must be finite. Check the input values and units.');
+  // Compare pivots against their own row scale, not the stiffest member in the model.
+  // Equations stay in physical units so the displayed row operations remain reproducible.
+  const rowScale=A.map(r=>Math.max(...r.map(Math.abs)));
+  const singular=()=>new Error('The reduced stiffness matrix is singular or numerically ill-conditioned. Check supports, connectivity, and stiffness ratios; a mechanism may be present.');
+  if(rowScale.some(v=>v===0)) throw singular();
   const steps=[];
   for(let k=0;k<n;k++){
-    let swap=null;
-    if(Math.abs(M[k][k])<1e-9*scale){
-      let p=-1,best=0;
-      for(let i=k+1;i<n;i++) if(Math.abs(M[i][k])>best){best=Math.abs(M[i][k]);p=i;}
-      if(p<0||best<1e-9*scale) throw new Error('The reduced stiffness matrix is singular, so the structure is a mechanism (it can move without straining any bar). Add supports or bars.');
-      [M[k],M[p]]=[M[p],M[k]]; swap=[k,p];
+    let swap=null,p=k,best=-1;
+    for(let i=k;i<n;i++){
+      const ratio=Math.abs(M[i][k])/rowScale[i];
+      if(ratio>best){best=ratio;p=i;}
+    }
+    if(!Number.isFinite(best)||best<=1e-12) throw singular();
+    if(p!==k){
+      [M[k],M[p]]=[M[p],M[k]];
+      [rowScale[k],rowScale[p]]=[rowScale[p],rowScale[k]];
+      swap=[k,p];
     }
     const ops=[];
     for(let i=k+1;i<n;i++){
@@ -529,14 +539,16 @@ function vSolve(){
   const r=S.res, fl=r.free.map(dofName), ft=r.free.map(dofTex);
   let h=`<section><div class="eyebrow">Step 5 of 6</div><h2>Nodal displacements</h2><p>Solve the equilibrium equation for the free DOFs:</p>`;
   h+=eq(String.raw`[K]\{d\}=\{F\}\;\;\Rightarrow\;\;${texMat(r.Kr)}\begin{Bmatrix}${ft.join(String.raw`\\`)}\end{Bmatrix}=\begin{Bmatrix}${r.Fr.map(v=>tf(v)).join(String.raw`\\`)}\end{Bmatrix}`);
-  h+=`<h3>Gaussian elimination</h3><p>Forward elimination reduces the augmented matrix [K | F] to upper-triangular form, removing one unknown column at a time with row operations R<sub>i</sub> ← R<sub>i</sub> − m·R<sub>k</sub>, where m = a<sub>ik</sub>/a<sub>kk</sub>.</p>`;
+  h+=`<h3>Gaussian elimination</h3><p>Scaled partial pivoting selects the largest |a<sub>ik</sub>| divided by that row's original largest coefficient. This allows different member stiffness scales without rescaling the displayed equations. Forward elimination reduces the augmented matrix [K | F] to upper-triangular form, removing one unknown column at a time with row operations R<sub>i</sub> ← R<sub>i</sub> − m·R<sub>k</sub>, where m = a<sub>ik</sub>/a<sub>kk</sub>.</p>`;
   h+=`<div class="stage"><b>Start</b>`+matrix(r.Kr.map((row,i)=>[...row,r.Fr[i]]),{rows:fl,factor:false,sig:5})+`</div>`;
   if(!r.sol.steps.length) h+=`<p>The matrix is already upper-triangular, so no elimination is needed.</p>`;
+  const rowLabels=[...fl];
   r.sol.steps.forEach(st=>{
+    if(st.swap){ const [i,j]=st.swap; [rowLabels[i],rowLabels[j]]=[rowLabels[j],rowLabels[i]]; }
     h+=`<div class="stage"><b>Eliminate column ${st.k+1}</b> (pivot ${fl[st.k]})`;
-    if(st.swap) h+=`<div class="ops">swap R${st.swap[0]+1} ↔ R${st.swap[1]+1} (zero pivot)</div>`;
+    if(st.swap) h+=`<div class="ops">swap R${st.swap[0]+1} ↔ R${st.swap[1]+1} (largest scaled pivot)</div>`;
     h+=st.ops.map(o=>`<div class="ops">R${o.i+1} ← R${o.i+1} − (${fmt(o.m,5)})·R${o.k+1}</div>`).join('');
-    h+=matrix(st.M,{rows:fl,factor:false,sig:5})+`</div>`;
+    h+=matrix(st.M,{rows:rowLabels,factor:false,sig:5})+`</div>`;
   });
   h+=`<h3>Back substitution</h3><p>Starting from the last row, each unknown is found from the ones already solved:</p>`;
   h+=r.sol.back.map(b=>eq(String.raw`${ft[b.i]}=\frac{${tf(b.rhs,5)}${b.terms.map(t=>String.raw`-(${tf(t.a,5)})(${tf(t.x,5)})`).join('')}}{${tf(b.piv,5)}}=${tf(b.x,5)}\ \text{m}`)).join('');
