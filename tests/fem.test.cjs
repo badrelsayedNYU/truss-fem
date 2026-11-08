@@ -4,9 +4,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const {test} = require('node:test');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-const core = html.split('/*CORE-START*/')[1].split('/*CORE-END*/')[0];
-const presets = html.split('/* ---------- presets')[1].split('const clone=')[0];
-const {analyze, gaussSolve, PRESETS} = vm.runInNewContext(core + '\n/* ---------- presets' + presets + '\n({analyze,gaussSolve,PRESETS});');
+// Include the view functions so regression tests exercise the actual teaching pages.
+const source = html.split('/*CORE-START*/')[1].split('const VIEWS=')[0];
+const {analyze, gaussSolve, PRESETS, S, solve, texMat, views} = vm.runInNewContext(source + '\n({analyze,gaussSolve,PRESETS,S,solve,texMat,views:[vProblem,vElement,vAssembly,vBC,vSolve,vResults]});');
 const near = (x,y,tol=1e-10) => assert.ok(Math.abs(x-y)<=tol*Math.max(1,Math.abs(y)),`${x} != ${y}`);
 const si = m => ({dim:m.dim,nodes:m.nodes.map(n=>({...n,F:n.F.map(f=>f*1e3)})),elems:m.elems.map(e=>({...e,i:e.i-1,j:e.j-1,E:e.E*1e9}))});
 function orthogonalModel(stiffness) {
@@ -43,4 +43,16 @@ test('a genuine mechanism and a zero-stiffness free row remain rejected',()=>{
 test('nonfinite input cannot produce a successful solution',()=>{
   assert.throws(()=>gaussSolve([[Infinity]],[1]),/finite/);
   assert.throws(()=>gaussSolve([[1]],[NaN]),/finite/);
+});
+
+test('matrix formatting does not receive array indices as precision arguments',()=>{
+  assert.ok(texMat([[1,2],[3,4]]).includes('1&2'));
+  assert.ok(texMat([[1e10,2],[3,4]]).includes('10'));
+});
+test('every solution stage renders for every built-in example',()=>{
+  for(const preset of PRESETS){
+    S.input=JSON.parse(JSON.stringify(preset));S.selEl=0;S.upTo=null;solve();
+    assert.equal(S.err,null);
+    for(const view of views){const page=view();assert.ok(page.length>100);assert.ok(!page.includes('NaN'));}
+  }
 });
